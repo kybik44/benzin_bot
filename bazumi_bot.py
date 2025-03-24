@@ -129,6 +129,29 @@ def verify_specific_user(user_id, phone_number):
     conn.close()
     return result
 
+def add_user(user_id):
+    """
+    Добавляет пользователя в таблицу users, если его еще нет.
+    """
+    conn = sqlite3.connect("bazumi_bot.db")
+    c = conn.cursor()
+    # Создаем таблицу, если она еще не существует
+    c.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)''')
+    # Добавляем пользователя, избегая дубликатов
+    c.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_all_users():
+    """
+    Возвращает список всех user_id из таблицы users.
+    """
+    conn = sqlite3.connect("bazumi_bot.db")
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users")
+    users = c.fetchall()
+    conn.close()
+    return [user[0] for user in users]
 
 # Вспомогательные функции
 def validate_date(date_str):
@@ -143,16 +166,18 @@ def format_contest_preview(title, date):
     return f"""На этой неделе мы разыгрываем <b>{title}</b>
 Условия очень простые:
 • нажать "<u>принять участие</u>"
-• быть подписанным на канал <b>@BAZUMI_discountt</b>
+• быть подписанным на канал <b>@testkybik</b>
 • дождаться результатов, они будут <b>{date}</b> в нашем канале"""
 
 
 def format_contest_notification(title, date):
     return f"""На этой неделе мы разыгрываем <b>{title}</b>
+    
 Условия очень простые:
 • нажать "<u>принять участие</u>"
-• быть подписанным на канал <b>@BAZUMI_discountt</b>
+• быть подписанным на канал <b>@testkybik</b>
 • дождаться результатов, они будут <b>{date}</b> в нашем канале
+
 <i>Присоединяйся!</i>"""
 
 
@@ -191,6 +216,10 @@ def create_contest(photo_id, title, end_date):
 
 
 def get_active_contest():
+    """
+    Возвращает данные активного конкурса из базы данных.
+    Ожидаемый формат: (id, photo_id, title, end_date, status, message_id).
+    """
     conn = sqlite3.connect("bazumi_bot.db")
     c = conn.cursor()
     c.execute("SELECT * FROM contests WHERE status = 'active' LIMIT 1")
@@ -283,7 +312,8 @@ CREATE_POST_PHOTO, CREATE_POST_TITLE, CREATE_POST_TEXT, CREATE_POST_PREVIEW = ra
     8, 12
 )
 PARTICIPATE_CONFIRM = 12
-
+VERIFY_SUPPORT = 13  # Для "Службы заботы"
+VERIFY_VIDEOS = 14   # Для "Видеоинструкций"
 
 # Главная панель администратора
 async def admin_panel(update, context):
@@ -1085,9 +1115,37 @@ async def cancel_delete(update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text("Управление конкурсом:", reply_markup=reply_markup)
 
-
+async def notify_all_users(contest, context):
+    """
+    Отправляет уведомление о конкурсе всем пользователям из базы данных.
+    """
+    users = get_all_users()
+    if not users:
+        logger.warning("Список пользователей пуст.")
+        return
+    
+    # Форматируем уведомление с использованием title (contest[2]) и end_date (contest[3])
+    notification = format_contest_notification(contest[2], contest[3])
+    keyboard = [[InlineKeyboardButton("Принять участие в конкурсе", callback_data="participate")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    for user_id in users:
+        try:
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=contest[1],  # photo_id
+                caption=notification,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"Ошибка при отправке уведомления пользователю {user_id}: {e}")
+            
 # Уведомление о конкурсе
-async def notify_contest(update, context):
+async def notify_contest(update: Update, context: CallbackContext):
+    """
+    Отправляет уведомление о текущем конкурсе всем пользователям и подтверждает администратору.
+    """
     query = update.callback_query
     await query.answer()
     
@@ -1097,40 +1155,40 @@ async def notify_contest(update, context):
             chat_id=update.effective_chat.id,
             text="Нет активного конкурса для уведомления."
         )
-        await asyncio.sleep(1)
-        await show_contest_menu(update, context)
         return
     
-    notification = format_contest_notification(contest[2], contest[3])
-    keyboard = [
-        [InlineKeyboardButton("Принять участие в конкурсе", callback_data="participate")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Отправляем уведомление всем пользователям
+    await notify_all_users(contest, context)
     
-    try:
-        # Отправляем уведомление в личный чат администратора (или текущего пользователя)
-        await context.bot.send_photo(
-            chat_id=update.effective_chat.id,  # Личный чат, а не канал
-            photo=contest[1],
-            caption=notification,
-            reply_markup=reply_markup,
-            parse_mode='HTML'
-        )
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Уведомление о конкурсе отправлено в ваш чат!"
-        )
-        await asyncio.sleep(1)
-        await show_contest_menu(update, context)
-    except Exception as e:
-        logger.error(f"Error sending contest notification: {e}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"Ошибка при отправке уведомления: {str(e)}"
-        )
-        await asyncio.sleep(1)
-        await show_contest_menu(update, context)
+    # Отправляем подтверждение администратору
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Уведомление о конкурсе успешно отправлено всем пользователям!"
+    )
 
+async def notify_all_users_with_post(post_photo, post_title, post_text, context):
+    """
+    Отправляет пост всем пользователям из базы данных.
+    """
+    users = get_all_users()
+    if not users:
+        logger.warning("Список пользователей пуст.")
+        return
+    
+    # Форматируем пост
+    preview = format_post_preview(post_title, post_text)
+    
+    for user_id in users:
+        try:
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=post_photo,
+                caption=preview,
+                parse_mode='HTML'
+            )
+            logger.info(f"Post sent to user {user_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке поста пользователю {user_id}: {e}")
 
 # Участие в конкурсе
 async def participate(update, context):
@@ -1138,153 +1196,111 @@ async def participate(update, context):
     await query.answer()
     
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id  # ID канала или личного чата
-    channel_id = "@BAZUMI_discountt"
+    chat_id = update.effective_chat.id
+    channel_id = "@testkybik"
     
     logger.info(f"participate called for user {user_id} from chat {chat_id}")
     
+    contest = get_active_contest()
+    if not contest:
+        is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
+        target_chat_id = user_id if is_channel_or_group else chat_id
+        await context.bot.send_message(
+            chat_id=target_chat_id, 
+            text="К сожалению, в данный момент нет активных конкурсов."
+        )
+        return ConversationHandler.END
+    
+    contest_id = contest[0]
+    context.user_data["contest_id"] = contest_id
+    
+    if is_participant(contest_id, user_id):
+        text = "Вы уже зарегистрированы в этом конкурсе!"
+        is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
+        target_chat_id = user_id if is_channel_or_group else chat_id
+        keyboard = [[InlineKeyboardButton('Назад', callback_data='go_back')],
+                   [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_message(
+            chat_id=target_chat_id, 
+            text=text, 
+            reply_markup=reply_markup,
+            parse_mode='HTML'
+        )
+        return ConversationHandler.END
+    
     try:
-        contest = get_active_contest()
-        if not contest:
-            # Если действие из канала, отправляем в личку
-            is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
-            target_chat_id = user_id if is_channel_or_group else chat_id
-            await context.bot.send_message(
-                chat_id=target_chat_id, 
-                text="К сожалению, в данный момент нет активных конкурсов."
-            )
-            return ConversationHandler.END
+        chat_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+        status = chat_member.status
+    except Exception as e:
+        logger.error(f"Error checking subscription for user {user_id}: {e}")
+        is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
+        target_chat_id = user_id if is_channel_or_group else chat_id
+        await context.bot.send_message(
+            chat_id=target_chat_id, 
+            text="Произошла ошибка при проверке подписки. Пожалуйста, попробуйте позже."
+        )
+        return ConversationHandler.END
+    
+    if status in ["member", "administrator", "creator"]:
+        is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
+        target_chat_id = user_id if is_channel_or_group else chat_id
         
-        contest_id = contest[0]
-        context.user_data["contest_id"] = contest_id
-        logger.info(f"Setting contest_id={contest_id} in user_data for user {user_id}")
-        
-        # Проверяем, является ли пользователь уже участником
-        already_participant = is_participant(contest_id, user_id)
-        logger.info(f"User {user_id} is already participant: {already_participant}")
-        
-        if already_participant:
-            text = "Вы уже зарегистрированы в этом конкурсе!"
-            is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
-            logger.info(f"User {user_id} is already registered, chat type: {update.effective_chat.type}")
-            
-            if is_channel_or_group:
-                try:
-                    await context.bot.send_message(
-                        chat_id=user_id, 
-                        text=text, 
-                        parse_mode='HTML'
-                    )
-                    logger.info(f"Sent 'already registered' message to user {user_id} in private chat")
-                except Exception as e:
-                    logger.error(f"Error sending private message to user {user_id}: {e}")
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f"@{update.effective_user.username}, пожалуйста, начните диалог с ботом, чтобы продолжить: https://t.me/{context.bot.username}"
-                    )
-            else:
-                keyboard = [[InlineKeyboardButton('Назад', callback_data='go_back')],
-                           [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]]
+        if is_user_verified(user_id):
+            conn = sqlite3.connect("bazumi_bot.db")
+            c = conn.cursor()
+            c.execute("SELECT phone_number FROM verified_users WHERE user_id = ?", (user_id,))
+            result = c.fetchone()
+            conn.close()
+            if result and result[0]:
+                phone_number = result[0]
+                add_participant(contest_id, user_id, update.effective_user.username, phone_number)
+                text = "Отлично, вы зарегистрированы как участник. Желаем вам удачи и остаемся на связи! Ваш Bazumi ♥️"
+                keyboard = [
+                    [InlineKeyboardButton("Назад", callback_data="go_back")],
+                    [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")]
+                ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await context.bot.send_message(
-                    chat_id=chat_id, 
-                    text=text, 
-                    reply_markup=reply_markup, 
-                    parse_mode='HTML'
-                )
-                logger.info(f"Sent 'already registered' message with buttons to user {user_id}")
-            return ConversationHandler.END
-        
-        # Проверяем подписку на канал
-        try:
-            chat_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
-            status = chat_member.status
-            logger.info(f"User {user_id} subscription status: {status}")
-        except Exception as e:
-            logger.error(f"Error checking subscription for user {user_id}: {e}")
-            is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
-            target_chat_id = user_id if is_channel_or_group else chat_id
-            await context.bot.send_message(
-                chat_id=target_chat_id, 
-                text="Произошла ошибка при проверке подписки. Пожалуйста, попробуйте позже."
-            )
-            return ConversationHandler.END
-        
-        if status in ["member", "administrator", "creator"]:
-            is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
-            
-            context.user_data["conversation_state"] = PARTICIPATE_CONFIRM
-            logger.info(f"Setting conversation_state to PARTICIPATE_CONFIRM for user {user_id}")
-            
-            if is_channel_or_group:
-                context.user_data['started_from_channel'] = True
-                logger.info(f"Setting started_from_channel=True for user {user_id}")
-                try:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text="Чтобы принять участие – подтвердите, что вы не бот. Мы не передаем ваши данные третьим лицам.",
-                        reply_markup=ReplyKeyboardMarkup(
-                            [[KeyboardButton("Я не бот🤖", request_contact=True)]],
-                            one_time_keyboard=True,
-                            resize_keyboard=True
-                        )
-                    )
-                    logger.info(f"Requesting contact for user {user_id} in personal chat")
-                    return PARTICIPATE_CONFIRM
-                except Exception as e:
-                    logger.error(f"Error sending private message: {e}")
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f"@{update.effective_user.username}, пожалуйста, начните диалог с ботом, чтобы принять участие: https://t.me/{context.bot.username}"
-                    )
-                    return ConversationHandler.END
-            # Логика для личного чата
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="Чтобы принять участие – подтвердите, что вы не бот. Мы не передаем ваши данные третьим лицам.",
-                reply_markup=ReplyKeyboardMarkup(
-                    [[KeyboardButton("Я не бот🤖", request_contact=True)]],
-                    one_time_keyboard=True,
-                    resize_keyboard=True
-                )
-            )
-            logger.info(f"Requesting contact for user {user_id} in chat {chat_id}")
-            return PARTICIPATE_CONFIRM
-        
-        else:
-            # Отправляем сообщение о подписке в личный чат, а не в канал
-            is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
-            target_chat_id = user_id if is_channel_or_group else chat_id
-            try:
-                await context.bot.send_message(
                     chat_id=target_chat_id,
-                    text="Чтобы участвовать в конкурсе, подпишитесь на канал @BAZUMI_discountt!",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("Подписаться", url="https://t.me/BAZUMI_discountt")],
-                        [InlineKeyboardButton("Проверить подписку", callback_data="check_subscription")]
-                    ])
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode="HTML"
                 )
-                logger.info(f"Sent subscription prompt to user {user_id} in chat {target_chat_id}")
-            except Exception as e:
-                logger.error(f"Error sending subscription message to {target_chat_id}: {e}")
-                if is_channel_or_group:
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=f"@{update.effective_user.username}, пожалуйста, начните диалог с ботом, чтобы продолжить: https://t.me/{context.bot.username}"
-                    )
-            return ConversationHandler.END
-    
-    except Exception as e:
-        logger.error(f"Error in participate for user {user_id}: {e}", exc_info=True)
+                await show_main_menu(update, context, is_end_of_flow=True)
+                return ConversationHandler.END
+        
+        # Сразу запрашиваем контакт
+        context.user_data["conversation_state"] = PARTICIPATE_CONFIRM
+        text = "Чтобы принять участие – подтвердите, что вы <b>не бот</b>. Мы <u>не передаем</u> ваши данные третьим лицам."
+        keyboard = [[KeyboardButton("Я не бот🤖", request_contact=True)]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        await context.bot.send_message(
+            chat_id=target_chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode="HTML"
+        )
+        return PARTICIPATE_CONFIRM
+    else:
         is_channel_or_group = update.effective_chat.type in ['channel', 'group', 'supergroup']
         target_chat_id = user_id if is_channel_or_group else chat_id
         try:
             await context.bot.send_message(
-                chat_id=target_chat_id, 
-                text="Произошла ошибка при проверке подписки. Пожалуйста, попробуйте позже."
+                chat_id=target_chat_id,
+                text="Чтобы участвовать в конкурсе, подпишитесь на канал @testkybik!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Подписаться", url="https://t.me/testkybik")],
+                    [InlineKeyboardButton("Проверить подписку", callback_data="check_subscription")]
+                ])
             )
-        except Exception as e2:
-            logger.error(f"Error sending error message: {e2}")
+        except Exception as e:
+            logger.error(f"Error sending subscription message: {e}")
+            if is_channel_or_group:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"@{update.effective_user.username}, начните диалог с ботом: https://t.me/{context.bot.username}"
+                )
         return ConversationHandler.END
 
 
@@ -1293,7 +1309,7 @@ async def check_subscription(update, context):
     await query.answer()
 
     user_id = update.effective_user.id
-    channel_id = "@BAZUMI_discountt"
+    channel_id = "@testkybik"
 
     # Защита от повторных нажатий
     if context.user_data.get("checking_subscription"):
@@ -1338,12 +1354,12 @@ async def check_subscription(update, context):
         else:
             # Пользователь не подписан
             current_text = query.message.text
-            new_text = "Вы ещё не подписаны на @BAZUMI_discountt. Подпишитесь, чтобы участвовать!"
+            new_text = "Вы ещё не подписаны на @testkybik. Подпишитесь, чтобы участвовать!"
             new_reply_markup = InlineKeyboardMarkup(
                 [
                     [
                         InlineKeyboardButton(
-                            "Подписаться", url="https://t.me/BAZUMI_discountt"
+                            "Подписаться", url="https://t.me/testkybik"
                         )
                     ],
                     [
@@ -1391,7 +1407,7 @@ async def check_subscription_gifts(update, context):
 
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    channel_id = "@BAZUMI_discountt"
+    channel_id = "@testkybik"
 
     try:
         chat_member = await context.bot.get_chat_member(
@@ -1481,12 +1497,12 @@ async def check_subscription_gifts(update, context):
 
         else:
             await query.edit_message_text(
-                "Вы ещё не подписаны на @BAZUMI_discountt. Подпишитесь, чтобы участвовать!",
+                "Вы ещё не подписаны на @testkybik. Подпишитесь, чтобы участвовать!",
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [
                             InlineKeyboardButton(
-                                "Подписаться", url="https://t.me/BAZUMI_discountt"
+                                "Подписаться", url="https://t.me/testkybik"
                             )
                         ],
                         [
@@ -1514,7 +1530,7 @@ async def confirm_participate(update, context):
     logger.info(f"confirm_participate called for user {update.effective_user.id}")
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    channel_id = "@BAZUMI_discountt"
+    channel_id = "@testkybik"
 
     try:
         contest = get_active_contest()
@@ -1571,12 +1587,12 @@ async def confirm_participate(update, context):
         else:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="Чтобы участвовать в конкурсе, подпишитесь на канал @BAZUMI_discountt!",
+                text="Чтобы участвовать в конкурсе, подпишитесь на канал @testkybik!",
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [
                             InlineKeyboardButton(
-                                "Подписаться", url="https://t.me/BAZUMI_discountt"
+                                "Подписаться", url="https://t.me/testkybik"
                             )
                         ],
                         [
@@ -1930,6 +1946,7 @@ async def create_post_preview(update, context):
 
     if query.data == "publish_post":
         try:
+            # Сохраняем пост в базе данных
             post_id = create_post(
                 context.user_data["post_photo"],
                 context.user_data["post_title"],
@@ -1939,47 +1956,19 @@ async def create_post_preview(update, context):
                 context.user_data["post_title"], context.user_data["post_text"]
             )
 
-            # Проверяем, есть ли message_id для редактирования
-            conn = sqlite3.connect("bazumi_bot.db")
-            c = conn.cursor()
-            c.execute("SELECT message_id FROM posts WHERE id = ?", (post_id,))
-            result = c.fetchone()
-            conn.close()
+            # Отправляем пост всем пользователям
+            await notify_all_users_with_post(
+                context.user_data["post_photo"],
+                context.user_data["post_title"],
+                context.user_data["post_text"],
+                context
+            )
 
-            if result and result[0]:
-                # Редактируем существующее сообщение
-                await context.bot.edit_message_media(
-                    chat_id="@testkybik",
-                    message_id=result[0],
-                    media=telegram.InputMediaPhoto(
-                        media=context.user_data["post_photo"],
-                        caption=preview,
-                        parse_mode="HTML",
-                    ),
-                )
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Пост успешно обновлен в канале!",
-                )
-            else:
-                # Отправляем новое сообщение и сохраняем message_id
-                sent_message = await context.bot.send_photo(
-                    chat_id="@testkybik",
-                    photo=context.user_data["post_photo"],
-                    caption=preview,
-                    parse_mode="HTML",
-                )
-                conn = sqlite3.connect("bazumi_bot.db")
-                c = conn.cursor()
-                c.execute(
-                    "UPDATE posts SET message_id = ? WHERE id = ?",
-                    (sent_message.message_id, post_id),
-                )
-                conn.commit()
-                conn.close()
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id, text="Пост опубликован!"
-                )
+            # Отправляем подтверждение администратору
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Пост успешно отправлен всем пользователям!"
+            )
 
             # Возвращаем в меню админа
             await asyncio.sleep(1)
@@ -1994,10 +1983,10 @@ async def create_post_preview(update, context):
                 reply_markup=reply_markup,
             )
         except Exception as e:
-            logger.error(f"Error publishing post: {e}")
+            logger.error(f"Error sending post to users: {e}")
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"Ошибка при публикации поста: {str(e)}",
+                text=f"Ошибка при отправке поста пользователям: {str(e)}",
             )
             await asyncio.sleep(1)
             keyboard = [
@@ -2018,7 +2007,6 @@ async def create_post_preview(update, context):
         return CREATE_POST_PHOTO
 
     return ConversationHandler.END
-
 
 # Отмена диалога
 async def cancel(update, context):
@@ -2092,15 +2080,48 @@ async def verify_user_command(update, context):
 
 # Основные функции бота для пользователей
 async def start(update: Update, context: CallbackContext) -> None:
+    """
+    Обрабатывает команду /start, добавляет пользователя в базу данных,
+    инициализирует историю навигации и показывает главное меню с видеокружком и фото.
+    """
     user = update.effective_user
-    context.user_data["history"] = ["main_menu"]  # Инициализируем историю
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=f"<b>Привет, {user.first_name}!</b> Я бот <b>Bazumi</b> - ваш помощник в мире игрушек. Чем могу помочь?",
-        parse_mode="HTML",
-    )
-    await show_main_menu(update, context)
+    add_user(user.id)
+    context.user_data["history"] = ["main_menu"]
 
+    # file_id видеокружка
+    video_file_id = "DQACAgIAAxkBAAIVTGfRbO4s_2jAYN-Pue8nItCoxjzOAAK7cAACR6l5Sj0Pr-SyKafSNgQ"
+
+    # Путь к файлу head.png на сервере
+    image_path = "images/head.png" # Укажите правильный путь к файлу
+
+    # Отправляем видеокружок по file_id
+    await context.bot.send_video_note(
+        chat_id=update.effective_chat.id,
+        video_note=video_file_id,
+    )
+
+    # Отправляем фото с текстовым приветствием как подписью
+    try:
+        with open(image_path, 'rb') as photo_file:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=photo_file,
+                caption=f"<b>Привет, {user.first_name}!</b> Я бот <b>Bazumi</b> - ваш помощник в мире игрушек. Чем могу помочь?",
+                parse_mode="HTML",
+            )
+    except FileNotFoundError:
+        logger.error(f"Фото {image_path} не найдено")
+        # Отправляем только текст, если фото не найдено
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"<b>Привет, {user.first_name}!</b> Я бот <b>Bazumi</b> - ваш помощник в мире игрушек. Чем могу помочь?",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при отправке фото: {e}")
+
+    # Показываем главное меню
+    await show_main_menu(update, context)
 
 async def show_main_menu(
     update: Update, context: CallbackContext, is_end_of_flow: bool = False
@@ -2203,7 +2224,17 @@ async def support_section(update: Update, context: CallbackContext) -> None:
 
 async def contact_manager(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    query = update.callback_query
+
+    # Проверяем, не был ли запрос уже обработан для этого callback
+    if context.user_data.get(f"contact_manager_processed_{query.id}"):
+        logger.info(f"Duplicate call to contact_manager for query {query.id}, skipping")
+        await query.answer()
+        return
+
     context.user_data["history"].append("contact_manager")
+    context.user_data[f"contact_manager_processed_{query.id}"] = True
 
     if is_user_verified(user_id):
         text = "Это <b>Алексей</b> – ваш личный менеджер <u>Службы заботы</u>. Напишите и мы поможем с решением любого вопроса."
@@ -2214,44 +2245,40 @@ async def contact_manager(update: Update, context: CallbackContext) -> None:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+            chat_id=chat_id,
             text=text,
             reply_markup=reply_markup,
             parse_mode="HTML",
         )
-        # await show_main_menu(update, context, is_end_of_flow=True)
+        logger.info(f"Sent manager message to verified user {user_id}")
     else:
-        text = "Чтобы продолжить – подтвердите, что вы <b>не бот</b>. Мы <u>не передаем</u> ваши данные третьим лицам."
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "Я не бот🤖", callback_data="confirm_not_bot_support"
-                )
-            ],
-            [InlineKeyboardButton("Назад", callback_data="go_back")],
-            [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        try:
+        # Устанавливаем флаг, что запрос на верификацию отправлен
+        if not context.user_data.get("verification_requested"):
+            context.user_data["verification_requested"] = True
+            context.user_data["conversation_state"] = VERIFY_SUPPORT
+            context.user_data["section"] = "support"
+            text = (
+                "Чтобы продолжить – подтвердите, что вы <b>не бот</b>. "
+                "Мы <u>не передаем</u> ваши данные третьим лицам."
+            )
+            keyboard = [[KeyboardButton("Я не бот🤖", request_contact=True)]]
+            reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
             await context.bot.send_message(
-                chat_id=update.effective_chat.id,
+                chat_id=chat_id,
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode="HTML",
             )
-        except NetworkError:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Ошибка сети. Проверьте подключение и попробуйте снова.",
-            )
+            logger.info(f"Verification requested for user {user_id}")
+            return VERIFY_SUPPORT
+
+    await query.answer()
 
 
-async def confirm_not_bot_support(update: Update, context: CallbackContext) -> None:
+async def confirm_not_bot_support(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
-    context.user_data['history'].append('confirm_not_bot_support')
     
     if is_user_verified(user_id):
-        context.user_data['section'] = 'support'
         text = 'Это Алексей – ваш личный менеджер Службы заботы. Напишите и мы поможем с решением любого вопроса.'
         keyboard = [
             [InlineKeyboardButton('Написать Алексею', url='https://t.me/AlexeyBazumi')],
@@ -2265,54 +2292,200 @@ async def confirm_not_bot_support(update: Update, context: CallbackContext) -> N
             reply_markup=reply_markup,
             parse_mode='HTML'
         )
-        # await show_main_menu(update, context, is_end_of_flow=True)
-    else:
-        context.user_data['section'] = 'support'
-        text = (
-            'Чтобы продолжить – подтвердите, что вы <b>не бот</b>. '
-            'Мы <u>не передаем</u> ваши данные третьим лицам.\n'
-            'Пожалуйста, поделитесь своим номером телефона.'
-        )
-        keyboard = [
-            [KeyboardButton('Я не бот🤖', request_contact=True)]
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode='HTML'
-        )
-        # Здесь можно добавить обработку контакта через ConversationHandler, если требуется
+        return ConversationHandler.END
+    
+    # Сразу запрашиваем контакт
+    context.user_data['section'] = 'support'
+    text = (
+        'Чтобы продолжить – подтвердите, что вы <b>не бот</b>. '
+        'Мы <u>не передаем</u> ваши данные третьим лицам.'
+    )
+    keyboard = [[KeyboardButton("Я не бот🤖", request_contact=True)]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode='HTML'
+    )
+    return VERIFY_SUPPORT
 
-async def confirm_not_bot_videos(update: Update, context: CallbackContext) -> None:
+async def confirm_not_bot_videos(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
     
     if is_user_verified(user_id):
-        context.user_data['section'] = 'videos'
         video_type = context.user_data.get('video_type')
-        
         if video_type == 'bazumi':
             text = 'Спасибо! Отправляем вам ссылки на плейлист с нашими инструкциями. Выберите удобную для вас площадку.'
             keyboard = [
                 [InlineKeyboardButton('Rutube', url='https://rutube.ru/playlist')],
                 [InlineKeyboardButton('Youtube', url='https://youtube.com/playlist')],
-                            [InlineKeyboardButton('Назад', callback_data='go_back')],
-            [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
+                [InlineKeyboardButton('Назад', callback_data='go_back')],
+                [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
         elif video_type == 'other':
             text = 'Спасибо! К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть Служба заботы, где вам всегда помогут.'
-            keyboard = [[InlineKeyboardButton('Написать Алексею', url='https://t.me/AlexeyBazumi')]]
+            keyboard = [
+                [InlineKeyboardButton('Написать Алексею', url='https://t.me/AlexeyBazumi')],
+                [InlineKeyboardButton('Назад', callback_data='go_back')],
+                [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
+            ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
-        
-        # await show_main_menu(update, context)
-    else:
-        context.user_data['section'] = 'videos'
-        await request_contact(update, context)
+        return ConversationHandler.END
+    
+    # Сразу запрашиваем контакт
+    context.user_data['section'] = 'videos'
+    text = (
+        'Чтобы получить доступ к инструкциям – подтвердите, что вы <b>не бот</b>. '
+        'Мы <u>не передаем</u> ваши данные третьим лицам.'
+    )
+    keyboard = [[KeyboardButton("Я не бот🤖", request_contact=True)]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode='HTML'
+    )
+    return VERIFY_VIDEOS
 
+async def handle_support_contact(update: Update, context: CallbackContext) -> int:
+    contact = update.message.contact
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    phone_number = contact.phone_number
+
+    # Верифицируем пользователя
+    mark_user_verified(user_id, phone_number)
+    logger.info(f"User {user_id} verified with phone number {phone_number}")
+
+    # Сбрасываем флаг верификации
+    context.user_data["verification_requested"] = False
+
+    # Отправляем сообщение с менеджером
+    text = "Это <b>Алексей</b> – ваш личный менеджер <u>Службы заботы</u>. Напишите и мы поможем с решением любого вопроса."
+    keyboard = [
+        [InlineKeyboardButton("Написать Алексею", url="https://t.me/AlexeyBazumi")],
+        [InlineKeyboardButton("Назад", callback_data="go_back")],
+        [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode="HTML",
+    )
+
+    # Показываем главное меню как завершение процесса
+    # await show_main_menu(update, context, is_end_of_flow=True)
+    return ConversationHandler.END
+
+
+
+async def handle_videos_contact(update: Update, context: CallbackContext) -> int:
+    contact = update.message.contact
+    user_id = update.effective_user.id
+    phone_number = contact.phone_number
+    mark_user_verified(user_id, phone_number)
+    
+    video_type = context.user_data.get('video_type')
+    if video_type == 'bazumi':
+        text = 'Спасибо! Отправляем вам ссылки на плейлист с нашими инструкциями. Выберите удобную для вас площадку.'
+        keyboard = [
+            [InlineKeyboardButton('Rutube', url='https://rutube.ru/playlist')],
+            [InlineKeyboardButton('Youtube', url='https://youtube.com/playlist')],
+            [InlineKeyboardButton('Назад', callback_data='go_back')],
+            [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
+        ]
+    elif video_type == 'other':
+        text = 'Спасибо! К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть Служба заботы, где вам всегда помогут.'
+        keyboard = [
+            [InlineKeyboardButton('Написать Алексею', url='https://t.me/AlexeyBazumi')],
+            [InlineKeyboardButton('Назад', callback_data='go_back')],
+            [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
+        ]
+    else:
+        text = 'Произошла ошибка. Пожалуйста, попробуйте снова.'
+        keyboard = [
+            [InlineKeyboardButton('Назад', callback_data='go_back')],
+            [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
+        ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode='HTML'
+    )
+    await show_main_menu(update, context, is_end_of_flow=True)
+    return ConversationHandler.END
+
+async def receive_contact(update: Update, context: CallbackContext) -> int:
+    contact = update.message.contact
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    
+    if not contact:
+        await update.message.reply_text(
+            "Пожалуйста, отправьте ваш контакт через кнопку.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return PARTICIPATE_CONFIRM
+    
+    phone_number = contact.phone_number
+    username = update.effective_user.username or "NoUsername"
+    contest_id = context.user_data.get("contest_id")
+    
+    logger.info(f"Received contact from user {user_id}: {phone_number}")
+    
+    if not contest_id:
+        contest = get_active_contest()
+        if contest:
+            contest_id = contest[0]
+            context.user_data["contest_id"] = contest_id
+        else:
+            await update.message.reply_text(
+                "К сожалению, в данный момент нет активных конкурсов.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            await show_main_menu(update, context, is_end_of_flow=True)
+            return ConversationHandler.END
+    
+    if is_participant(contest_id, user_id):
+        text = "Вы уже зарегистрированы в этом конкурсе!"
+        keyboard = [
+            [InlineKeyboardButton("Назад", callback_data="go_back")],
+            [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode="HTML"
+        )
+        await show_main_menu(update, context, is_end_of_flow=True)
+        return ConversationHandler.END
+    
+    mark_user_verified(user_id, phone_number)
+    add_participant(contest_id, user_id, username, phone_number)
+    
+    text = "Отлично, вы зарегистрированы как участник. Желаем вам удачи и остаемся на связи! Ваш Bazumi ♥️"
+    keyboard = [
+        [InlineKeyboardButton("Назад", callback_data="go_back")],
+        [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode="HTML"
+    )
+    # await show_main_menu(update, context, is_end_of_flow=True)
+    return ConversationHandler.END
 
 async def gifts_section(update: Update, context: CallbackContext) -> None:
     text = (
@@ -2440,16 +2613,13 @@ async def participate_gifts(update: Update, context: CallbackContext) -> None:
     await update.callback_query.answer()
 
 
-async def confirm_not_bot_gifts(update: Update, context: CallbackContext) -> None:
+async def confirm_not_bot_gifts(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
-
-    # Check if user is already verified
+    
     if is_user_verified(user_id):
-        # Skip verification and proceed directly
         context.user_data["section"] = "gifts"
         contest = get_active_contest()
         if contest:
-            # Get phone number from verified_users table
             conn = sqlite3.connect("bazumi_bot.db")
             c = conn.cursor()
             c.execute(
@@ -2464,23 +2634,40 @@ async def confirm_not_bot_gifts(update: Update, context: CallbackContext) -> Non
                     contest[0], user_id, update.effective_user.username, phone_number
                 )
                 text = "Отлично, вы зарегистрированы как участник. Желаем вам удачи и остаемся на связи! Ваш Bazumi ♥️"
+                keyboard = [
+                    [InlineKeyboardButton("Назад", callback_data="go_back")],
+                    [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 await context.bot.send_message(
-                    chat_id=update.effective_chat.id, text=text
+                    chat_id=update.effective_chat.id,
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
                 )
-                await show_main_menu(update, context)
-            else:
-                # Fallback if phone number not found
-                await request_contact(update, context)
+            return ConversationHandler.END
         else:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="В данный момент нет активных конкурсов.",
             )
-            await show_main_menu(update, context)
-    else:
-        # User needs to verify
-        context.user_data["section"] = "gifts"
-        await request_contact(update, context)
+            return ConversationHandler.END
+    
+    # Сразу запрашиваем контакт
+    context.user_data['section'] = 'gifts'
+    text = (
+        'Чтобы продолжить – подтвердите, что вы <b>не бот</b>. '
+        'Мы <u>не передаем</u> ваши данные третьим лицам.'
+    )
+    keyboard = [[KeyboardButton("Я не бот🤖", request_contact=True)]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode='HTML'
+    )
+    return PARTICIPATE_CONFIRM
 
 
 async def request_contact(update, context):
@@ -2611,35 +2798,6 @@ async def videos_other(update: Update, context: CallbackContext) -> None:
 
     await update.callback_query.answer()
 
-
-async def confirm_not_bot_videos(update: Update, context: CallbackContext) -> None:
-    user_id = update.effective_user.id
-    
-    if is_user_verified(user_id):
-        context.user_data['section'] = 'videos'
-        video_type = context.user_data.get('video_type')
-        
-        if video_type == 'bazumi':
-            text = 'Спасибо! Отправляем вам ссылки на плейлист с нашими инструкциями. Выберите удобную для вас площадку.'
-            keyboard = [
-                [InlineKeyboardButton('Rutube', url='https://rutube.ru/playlist')],
-                [InlineKeyboardButton('Youtube', url='https://youtube.com/playlist')],
-                [InlineKeyboardButton('Назад', callback_data='go_back')],
-                [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
-        elif video_type == 'other':
-            text = 'Спасибо! К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть Служба заботы, где вам всегда помогут.'
-            keyboard = [[InlineKeyboardButton('Написать Алексею', url='https://t.me/AlexeyBazumi')]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=reply_markup)
-        
-        # await show_main_menu(update, context)
-    else:
-        context.user_data['section'] = 'videos'
-        await request_contact(update, context)
-        # Здесь можно добавить обработку контакта через ConversationHandler, если требуется
 
 
 # async def handle_contact(update: Update, context: CallbackContext) -> None:
@@ -2930,17 +3088,21 @@ def main():
     
     application.add_error_handler(error_handler)
     
-    # Инициализируем participate_handler
     participate_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(participate, pattern="^participate$"),
-            CallbackQueryHandler(confirm_participate, pattern="^confirm_participate$")
+            CallbackQueryHandler(confirm_participate, pattern="^confirm_participate$"),
+            CallbackQueryHandler(contact_manager, pattern="^contact_manager$"),
+            CallbackQueryHandler(confirm_not_bot_videos, pattern="^confirm_not_bot_videos$"),
         ],
         states={
-            PARTICIPATE_CONFIRM: [MessageHandler(filters.CONTACT, receive_contact)]
+            PARTICIPATE_CONFIRM: [MessageHandler(filters.CONTACT, receive_contact)],
+            VERIFY_SUPPORT: [MessageHandler(filters.CONTACT, handle_support_contact)],
+            VERIFY_VIDEOS: [MessageHandler(filters.CONTACT, handle_videos_contact)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=False,
+        per_chat=False,
+        per_user=True,
         name="participate_conversation"
     )
     application.add_handler(participate_handler, group=-1)
@@ -3029,7 +3191,7 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo_for_conversation), group=1)
     
     # Добавляем обработчик контактов вне ConversationHandler для надежности
-    application.add_handler(MessageHandler(filters.CONTACT, receive_contact), group=2)
+    # application.add_handler(MessageHandler(filters.CONTACT, receive_contact), group=2)
 
     application.add_handler(CommandHandler("state", check_state), group=0)
     application.add_handler(CommandHandler("debug", debug_state), group=0)
