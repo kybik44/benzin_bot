@@ -163,22 +163,19 @@ def validate_date(date_str):
 
 
 def format_contest_preview(title, date):
-    return f"""На этой неделе мы разыгрываем <b>{title}</b>
-Условия очень простые:
-• нажать "<u>принять участие</u>"
-• быть подписанным на канал <b>@testkybik</b>
-• дождаться результатов, они будут <b>{date}</b> в нашем канале"""
+    return f"""На этой неделе разыгрываем <b>{title}</b>
+📌 Условия участия:
+✔️ Нажать <u>«Принять участие»</u>
+✔️ Быть подписанным на <b>@testkybik</b>
+✔️ Дождаться результатов <b>{date}</b> — мы объявим их в канале, а победителям напишет наш менеджер"""
 
 
 def format_contest_notification(title, date):
-    return f"""На этой неделе мы разыгрываем <b>{title}</b>
-    
-Условия очень простые:
-• нажать "<u>принять участие</u>"
-• быть подписанным на канал <b>@testkybik</b>
-• дождаться результатов, они будут <b>{date}</b> в нашем канале
-
-<i>Присоединяйся!</i>"""
+    return f"""На этой неделе разыгрываем <b>{title}</b>
+📌 Условия участия:
+✔️ Нажать <u>«Принять участие»</u>
+✔️ Быть подписанным на <b>@testkybik</b>
+✔️ Дождаться результатов <b>{date}</b> — мы объявим их в канале, а победителям напишет наш менеджер"""
 
 
 def format_post_preview(title, text):
@@ -1267,12 +1264,14 @@ async def participate(update, context):
                     reply_markup=reply_markup,
                     parse_mode="HTML"
                 )
-                await show_main_menu(update, context, is_end_of_flow=True)
                 return ConversationHandler.END
         
-        # Сразу запрашиваем контакт
+        # Обновленный текст с поддержкой десктопных пользователей
         context.user_data["conversation_state"] = PARTICIPATE_CONFIRM
-        text = "Чтобы принять участие – подтвердите, что вы <b>не бот</b>. Мы <u>не передаем</u> ваши данные третьим лицам."
+        text = (
+            "Чтобы принять участие – подтвердите, что вы <b>не бот</b>. Мы <u>не передаем</u> ваши данные третьим лицам.\n"
+            "Нажмите кнопку ниже (на мобильном устройстве) или отправьте ваш номер телефона в формате +79991234567 (на десктопе)."
+        )
         keyboard = [[KeyboardButton("Я не бот🤖", request_contact=True)]]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         await context.bot.send_message(
@@ -1611,121 +1610,6 @@ async def confirm_participate(update, context):
             chat_id=chat_id, text="Произошла ошибка при проверке подписки..."
         )
         return
-
-
-async def receive_contact(update, context):
-    user = update.effective_user
-    contact = update.message.contact
-    logger.info(f"receive_contact called for user {user.id} with contact {contact.phone_number}")
-
-    # Проверяем, находится ли пользователь в состоянии ConversationHandler
-    is_in_conversation = False
-    for group, handlers in context.application.handlers.items():
-        for handler in handlers:
-            if isinstance(handler, ConversationHandler) and handler.name == "participate_conversation":
-                state = handler._conversations.get((update.effective_chat.id, user.id))
-                if state is not None:
-                    is_in_conversation = True
-                    logger.info(f"User {user.id} is in conversation state: {state}")
-                    break
-        if is_in_conversation:
-            break
-
-    # Если контакт пришел вне ConversationHandler и нет флага обработки
-    if not is_in_conversation and not context.user_data.get("contact_processed"):
-        logger.info(f"User {user.id} is not in conversation, processing contact from channel")
-        context.user_data["contact_processed"] = True  # Устанавливаем флаг обработки
-    elif is_in_conversation and not context.user_data.get("contact_processed"):
-        logger.info(f"User {user.id} is in conversation, processing contact")
-        context.user_data["contact_processed"] = True  # Устанавливаем флаг обработки
-    else:
-        logger.info(f"Contact for user {user.id} already processed, skipping")
-        return ConversationHandler.END
-
-    try:
-        contest_id = context.user_data.get("contest_id")
-        if not contest_id:
-            contest = get_active_contest()
-            if contest:
-                contest_id = contest[0]
-                context.user_data["contest_id"] = contest_id
-                logger.info(f"Retrieved contest_id from active contest: {contest_id}")
-            else:
-                logger.warning("No active contest found in receive_contact")
-                await update.message.reply_text(
-                    "Ошибка: не найден активный конкурс.",
-                    reply_markup=ReplyKeyboardRemove()
-                )
-                context.user_data["contact_processed"] = False
-                return ConversationHandler.END
-
-        if is_participant(contest_id, user.id):
-            text = "Вы уже зарегистрированы в этом конкурсе!"
-            keyboard = [
-                [InlineKeyboardButton('Назад', callback_data='go_back')],
-                [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode='HTML'
-            )
-            await show_main_menu(update, context, is_end_of_flow=True)
-            context.user_data["contact_processed"] = False
-            return ConversationHandler.END
-
-        logger.info(f"Adding participant: contest_id={contest_id}, user_id={user.id}")
-        add_participant(contest_id, user.id, user.username, contact.phone_number)
-        logger.info(f"Marking user {user.id} as verified with phone {contact.phone_number}")
-        mark_user_verified(user.id, contact.phone_number)
-
-        text = "Отлично, вы зарегистрированы как участник. Желаем вам удачи и остаемся на связи! Ваш Bazumi ♥️"
-        logger.info(f"Sending confirmation message to user {user.id}")
-
-        await update.message.reply_text(
-            text=text,
-            parse_mode='HTML',
-            reply_markup=ReplyKeyboardRemove()
-        )
-        logger.info(f"Confirmation message sent to user {user.id}")
-
-        is_channel_or_group = context.user_data.get('started_from_channel', False)
-        if not is_channel_or_group:
-            keyboard = [
-                [InlineKeyboardButton('Назад', callback_data='go_back')],
-                [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await context.bot.send_message(
-                chat_id=user.id,
-                text="Вы можете вернуться в меню:",
-                reply_markup=reply_markup
-            )
-
-        await show_main_menu(update, context, is_end_of_flow=True)
-        logger.info(f"Successfully registered user {user.id} in contest {contest_id}")
-
-        # Очистка состояния
-        if 'awaiting_contact' in context.user_data:
-            del context.user_data['awaiting_contact']
-        if 'started_from_channel' in context.user_data:
-            del context.user_data['started_from_channel']
-        if 'checking_subscription' in context.user_data:
-            del context.user_data['checking_subscription']
-        context.user_data["contact_processed"] = False
-
-        return ConversationHandler.END
-
-    except Exception as e:
-        logger.error(f"Error in receive_contact for user {user.id}: {str(e)}", exc_info=True)
-        await update.message.reply_text(
-            "Произошла ошибка при регистрации. Пожалуйста, попробуйте снова.",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data["contact_processed"] = False
-        return ConversationHandler.END
-
 
 # Выгрузка участников
 async def export_participants(update, context):
@@ -2175,57 +2059,103 @@ async def show_main_menu(
 
 
 async def support_section(update: Update, context: CallbackContext) -> None:
-    text = (
-        "<b>Трудности иногда случаются, но Bazumi всегда на связи.</b> Здесь вы можете:\n"
-        "• Получить <i>консультации</i> по выбору игрушек\n"
-        "• Решить вопрос с <i>браком или поломкой</i>\n"
-        "• Получить помощь в <i>выборе подарка</i>\n"
-        "• Оставить ваш <i>отзыв или пожелание</i>"
-    )
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "Связаться с менеджером", callback_data="contact_manager"
-            )
-        ],
-        [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    image_path = "images/care.png"
+    user_id = update.effective_user.id
+    logger.info(f"support_section called for user {user_id}")
+    
+    if is_user_verified(user_id):
+        # Если пользователь верифицирован, показываем информацию о менеджере
+        text = "<b>Мы всегда рядом и готовы помочь!</b>\n"
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "Связаться с менеджером", callback_data="contact_manager"
+                )
+            ],
+            [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        image_path = "images/care.png"
 
-    context.user_data["history"].append("support_section")
+        context.user_data["history"].append("support_section")
 
-    try:
-        with open(image_path, "rb") as photo:
-            await context.bot.send_photo(
+        try:
+            with open(image_path, "rb") as photo:
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=photo,
+                    caption=text,
+                    reply_markup=reply_markup,
+                    parse_mode="HTML",
+                )
+        except FileNotFoundError:
+            logger.error(f"Image file {image_path} not found.")
+            await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                photo=photo,
-                caption=text,
+                text=text,
                 reply_markup=reply_markup,
                 parse_mode="HTML",
             )
-    except FileNotFoundError:
-        logger.error(f"Image file {image_path} not found.")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode="HTML",
+        except Exception as e:
+            logger.error(f"Error sending photo: {e}")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode="HTML",
+            )
+    else:
+        # Если пользователь не верифицирован
+        context.user_data["verification_requested"] = True
+        context.user_data["section"] = "support"
+        context.user_data["history"].append("support_section")
+        
+        text = (
+            "<b>Мы всегда рядом и готовы помочь!</b>\n"
+            "Чтобы связаться с менеджером – подтвердите, что вы <b>не бот</b>.\n"
+            "Мы <u>не передаем</u> ваши данные третьим лицам."
         )
-    except Exception as e:
-        logger.error(f"Error sending photo: {e}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=text,
-            reply_markup=reply_markup,
-            parse_mode="HTML",
-        )
+        keyboard = [[KeyboardButton("Я не бот🤖", request_contact=True)]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        
+        image_path = "images/care.png"
+        try:
+            with open(image_path, "rb") as photo:
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=photo,
+                    caption=text,
+                    reply_markup=reply_markup,
+                    parse_mode="HTML",
+                )
+        except FileNotFoundError:
+            logger.error(f"Image file {image_path} not found.")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.error(f"Error sending photo: {e}")
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode="HTML",
+            )
+        
+        logger.info(f"Verification requested for user {user_id} in support_section")
+        if update.callback_query:
+            await update.callback_query.answer()
+        return VERIFY_SUPPORT  # Возвращаем состояние для ConversationHandler
 
 
 async def contact_manager(update: Update, context: CallbackContext) -> None:
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     query = update.callback_query
+    
+    logger.info(f"contact_manager called for user {user_id}")
 
     # Проверяем, не был ли запрос уже обработан для этого callback
     if context.user_data.get(f"contact_manager_processed_{query.id}"):
@@ -2237,10 +2167,9 @@ async def contact_manager(update: Update, context: CallbackContext) -> None:
     context.user_data[f"contact_manager_processed_{query.id}"] = True
 
     if is_user_verified(user_id):
-        text = "Это <b>Алексей</b> – ваш личный менеджер <u>Службы заботы</u>. Напишите и мы поможем с решением любого вопроса."
+        text = "Это <b>Люба</b> – ваш менеджер. Она поможет вам с любым вопросом в будние дни с 9:00 до 17:00. Нам важно, чтобы каждый клиент остался доволен!"
         keyboard = [
-            [InlineKeyboardButton("Написать Алексею", url="https://t.me/AlexeyBazumi")],
-            [InlineKeyboardButton("Назад", callback_data="go_back")],
+            [InlineKeyboardButton("Написать Любе", url="https://t.me/AlexeyBazumi")],
             [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2279,10 +2208,9 @@ async def confirm_not_bot_support(update: Update, context: CallbackContext) -> i
     user_id = update.effective_user.id
     
     if is_user_verified(user_id):
-        text = 'Это Алексей – ваш личный менеджер Службы заботы. Напишите и мы поможем с решением любого вопроса.'
+        text = 'Это Люба — ваш менеджер. Она поможет вам с любым вопросом в будние дни с 9:00 до 17:00. Нам важно, чтобы каждый клиент остался доволен!'
         keyboard = [
-            [InlineKeyboardButton('Написать Алексею', url='https://t.me/AlexeyBazumi')],
-            [InlineKeyboardButton('Назад', callback_data='go_back')],
+            [InlineKeyboardButton('Написать Любе', url='https://t.me/AlexeyBazumi')],
             [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2328,8 +2256,7 @@ async def confirm_not_bot_videos(update: Update, context: CallbackContext) -> in
         elif video_type == 'other':
             text = 'Спасибо! К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть Служба заботы, где вам всегда помогут.'
             keyboard = [
-                [InlineKeyboardButton('Написать Алексею', url='https://t.me/AlexeyBazumi')],
-                [InlineKeyboardButton('Назад', callback_data='go_back')],
+                [InlineKeyboardButton('Написать Любе', url='https://t.me/AlexeyBazumi')],
                 [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2357,6 +2284,9 @@ async def handle_support_contact(update: Update, context: CallbackContext) -> in
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     phone_number = contact.phone_number
+    
+    # Добавляем подробный лог
+    logger.info(f"handle_support_contact called for user {user_id} with phone {phone_number}")
 
     # Верифицируем пользователя
     mark_user_verified(user_id, phone_number)
@@ -2366,21 +2296,27 @@ async def handle_support_contact(update: Update, context: CallbackContext) -> in
     context.user_data["verification_requested"] = False
 
     # Отправляем сообщение с менеджером
-    text = "Это <b>Алексей</b> – ваш личный менеджер <u>Службы заботы</u>. Напишите и мы поможем с решением любого вопроса."
+    text = "Это <b>Люба</b> – ваш менеджер. Она поможет вам с любым вопросом в будние дни с 9:00 до 17:00. Нам важно, чтобы каждый клиент остался доволен!"
     keyboard = [
-        [InlineKeyboardButton("Написать Алексею", url="https://t.me/AlexeyBazumi")],
-        [InlineKeyboardButton("Назад", callback_data="go_back")],
+        [InlineKeyboardButton("Написать Любе", url="https://t.me/AlexeyBazumi")],
         [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
+    
+    # Убираем клавиатуру и отправляем сообщение
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Спасибо за подтверждение!",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await context.bot.send_message(
+        chat_id=chat_id,
         text=text,
         reply_markup=reply_markup,
         parse_mode="HTML",
     )
-
-    # Показываем главное меню как завершение процесса
-    # await show_main_menu(update, context, is_end_of_flow=True)
+    
+    logger.info(f"Manager contact sent to user {user_id} after verification")
     return ConversationHandler.END
 
 
@@ -2388,12 +2324,29 @@ async def handle_support_contact(update: Update, context: CallbackContext) -> in
 async def handle_videos_contact(update: Update, context: CallbackContext) -> int:
     contact = update.message.contact
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
     phone_number = contact.phone_number
+    
+    # Добавляем более подробный лог
+    logger.info(f"handle_videos_contact called for user {user_id} with phone {phone_number}")
+    
+    # Верифицируем пользователя
     mark_user_verified(user_id, phone_number)
+    logger.info(f"User {user_id} verified with phone number {phone_number}")
+    
+    # Сбрасываем флаг верификации
+    context.user_data["verification_requested"] = False
+    
+    # Сначала убираем клавиатуру с запросом контакта
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Спасибо за подтверждение!",
+        reply_markup=ReplyKeyboardRemove(),
+    )
     
     video_type = context.user_data.get('video_type')
     if video_type == 'bazumi':
-        text = 'Спасибо! Отправляем вам ссылки на плейлист с нашими инструкциями. Выберите удобную для вас площадку.'
+        text = 'Отправляем вам ссылки на плейлист с нашими инструкциями. Выберите удобную для вас площадку.'
         keyboard = [
             [InlineKeyboardButton('Rutube', url='https://rutube.ru/playlist')],
             [InlineKeyboardButton('Youtube', url='https://youtube.com/playlist')],
@@ -2401,10 +2354,9 @@ async def handle_videos_contact(update: Update, context: CallbackContext) -> int
             [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
         ]
     elif video_type == 'other':
-        text = 'Спасибо! К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть Служба заботы, где вам всегда помогут.'
+        text = 'К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть Служба заботы, где вам всегда помогут.'
         keyboard = [
-            [InlineKeyboardButton('Написать Алексею', url='https://t.me/AlexeyBazumi')],
-            [InlineKeyboardButton('Назад', callback_data='go_back')],
+            [InlineKeyboardButton('Написать Любе', url='https://t.me/AlexeyBazumi')],
             [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
         ]
     else:
@@ -2415,31 +2367,39 @@ async def handle_videos_contact(update: Update, context: CallbackContext) -> int
         ]
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
+    await context.bot.send_message(
+        chat_id=chat_id,
         text=text,
         reply_markup=reply_markup,
         parse_mode='HTML'
     )
-    await show_main_menu(update, context, is_end_of_flow=True)
+    
+    logger.info(f"Video instructions info sent to user {user_id} after verification for type: {video_type}")
     return ConversationHandler.END
 
 async def receive_contact(update: Update, context: CallbackContext) -> int:
-    contact = update.message.contact
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+    contact = update.message.contact
+    phone_number = None
     
-    if not contact:
+    # Проверяем, получен ли контакт или текстовый номер телефона
+    if contact:
+        phone_number = contact.phone_number
+    elif update.message.text and update.message.text.startswith("+") and len(update.message.text) >= 10:
+        phone_number = update.message.text  # Принимаем номер, отправленный текстом
+    
+    if not phone_number:
         await update.message.reply_text(
-            "Пожалуйста, отправьте ваш контакт через кнопку.",
+            "Пожалуйста, отправьте ваш контакт через кнопку или введите номер телефона в формате +79991234567.",
             reply_markup=ReplyKeyboardRemove()
         )
         return PARTICIPATE_CONFIRM
     
-    phone_number = contact.phone_number
     username = update.effective_user.username or "NoUsername"
     contest_id = context.user_data.get("contest_id")
     
-    logger.info(f"Received contact from user {user_id}: {phone_number}")
+    logger.info(f"Received phone number from user {user_id}: {phone_number}")
     
     if not contest_id:
         contest = get_active_contest()
@@ -2479,7 +2439,15 @@ async def receive_contact(update: Update, context: CallbackContext) -> int:
         [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Сначала убираем клавиатуру
     await update.message.reply_text(
+        "Спасибо за подтверждение!",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    # Затем отправляем сообщение с inline-клавиатурой
+    await context.bot.send_message(
+        chat_id=chat_id,
         text=text,
         reply_markup=reply_markup,
         parse_mode="HTML"
@@ -2489,12 +2457,14 @@ async def receive_contact(update: Update, context: CallbackContext) -> int:
 
 async def gifts_section(update: Update, context: CallbackContext) -> None:
     text = (
-        "<b>Еженедельные подарки 🎁</b>\n"
-        "Два раза в неделю мы проводим <u>розыгрыш</u> среди подписчиков нашего канала. "
-        "У каждого есть шанс выиграть <b>самые топовые модели</b> из нашего ассортимента!"
+        "<b>🎁 Еженедельные подарки</b>\n"
+        "Каждую неделю мы разыгрываем игрушки среди подписчиков нашего канала!\n"
+        "У каждого есть шанс выиграть — мы дарим не только классные игрушки, но и промокоды на скидку, чтобы порадовать вас и ваших малышей.\n"
+        "Следите за розыгрышами и участвуйте — это просто и приятно!\n"
     )
+
     keyboard = [
-        [InlineKeyboardButton("Отлично, я в деле!", callback_data="participate_gifts")],
+        [InlineKeyboardButton("🎉 Я в деле!", callback_data="participate_gifts")],
         [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2539,9 +2509,9 @@ async def participate_gifts(update: Update, context: CallbackContext) -> None:
         contest_id = contest[0]
     else:
         text = (
-            "На этой неделе мы разыгрываем Набор Bazumi Ultra Puper Super\n"
+            "На этой неделе разыгрываем Bazumi Ultra Puper Super\n"
             "Условия очень простые:\n"
-            '- нажать "принять участие"\n'
+            '- нажать "принять участие\n'
             "- быть подписанным на канал @testkybik\n"
             "- дождаться результатов, они будут скоро в нашем канале"
         )
@@ -2599,7 +2569,6 @@ async def participate_gifts(update: Update, context: CallbackContext) -> None:
     # Если пользователь не верифицирован или конкурса нет
     keyboard = [
         [InlineKeyboardButton("Принять участие", callback_data="confirm_participate")],
-        [InlineKeyboardButton("Назад", callback_data="go_back")],
         [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2741,21 +2710,29 @@ async def videos_bazumi(update: Update, context: CallbackContext) -> None:
             reply_markup=reply_markup,
             parse_mode="HTML",
         )
-        # await show_main_menu(update, context, is_end_of_flow=True)
     else:
+        # Если пользователь не верифицирован, сразу запрашиваем контакт
+        context.user_data["verification_requested"] = True
+        context.user_data["conversation_state"] = VERIFY_VIDEOS
+        context.user_data["section"] = "videos"
+        
         text = "Чтобы получить доступ к инструкциям – подтвердите, что вы <b>не бот</b>. Мы <u>не передаем</u> ваши данные третьим лицам."
-        keyboard = [
-            [InlineKeyboardButton("Я не бот🤖", callback_data="confirm_not_bot_videos")],
-            [InlineKeyboardButton("Назад", callback_data="go_back")],
-            [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+        
+        # Создаем клавиатуру с кнопкой для отправки контакта
+        keyboard = [[KeyboardButton("Я не бот🤖", request_contact=True)]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        
+        # Отправляем сообщение с клавиатурой
+        await update.callback_query.message.reply_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode="HTML",
         )
+        
+        logger.info(f"Direct verification requested for user {user_id} in videos_bazumi")
+        
+        # Возвращаем состояние для ConversationHandler
+        return VERIFY_VIDEOS
 
     await update.callback_query.answer()
 
@@ -2769,8 +2746,7 @@ async def videos_other(update: Update, context: CallbackContext) -> None:
     if is_user_verified(user_id):
         text = "<b>Спасибо!</b> К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть <u>Служба заботы</u>, где вам всегда помогут."
         keyboard = [
-            [InlineKeyboardButton("Написать Алексею", url="https://t.me/AlexeyBazumi")],
-            [InlineKeyboardButton("Назад", callback_data="go_back")],
+            [InlineKeyboardButton("Написать Любе", url="https://t.me/AlexeyBazumi")],
             [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2780,21 +2756,29 @@ async def videos_other(update: Update, context: CallbackContext) -> None:
             reply_markup=reply_markup,
             parse_mode="HTML",
         )
-        # await show_main_menu(update, context, is_end_of_flow=True)
     else:
+        # Если пользователь не верифицирован, сразу запрашиваем контакт
+        context.user_data["verification_requested"] = True
+        context.user_data["conversation_state"] = VERIFY_VIDEOS
+        context.user_data["section"] = "videos"
+        
         text = "Чтобы получить доступ к инструкциям – подтвердите, что вы <b>не бот</b>. Мы <u>не передаем</u> ваши данные третьим лицам."
-        keyboard = [
-            [InlineKeyboardButton("Я не бот🤖", callback_data="confirm_not_bot_videos")],
-            [InlineKeyboardButton("Назад", callback_data="go_back")],
-            [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
+        
+        # Создаем клавиатуру с кнопкой для отправки контакта
+        keyboard = [[KeyboardButton("Я не бот🤖", request_contact=True)]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        
+        # Отправляем сообщение с клавиатурой
+        await update.callback_query.message.reply_text(
             text=text,
             reply_markup=reply_markup,
             parse_mode="HTML",
         )
+        
+        logger.info(f"Direct verification requested for user {user_id} in videos_other")
+        
+        # Возвращаем состояние для ConversationHandler
+        return VERIFY_VIDEOS
 
     await update.callback_query.answer()
 
@@ -2812,7 +2796,7 @@ async def videos_other(update: Update, context: CallbackContext) -> None:
 #             keyboard = [
 #                 [
 #                     InlineKeyboardButton(
-#                         "Написать Алексею", url="https://t.me/AlexeyBazumi"
+#                         "Написать Любе", url="https://t.me/AlexeyBazumi"
 #                     )
 #                 ],
 #                 [InlineKeyboardButton("Назад", callback_data="go_back")],
@@ -2859,7 +2843,7 @@ async def videos_other(update: Update, context: CallbackContext) -> None:
 #                 keyboard = [
 #                     [
 #                         InlineKeyboardButton(
-#                             "Написать Алексею", url="https://t.me/AlexeyBazumi"
+#                             "Написать Любе", url="https://t.me/AlexeyBazumi"
 #                         )
 #                     ],
 #                     [InlineKeyboardButton("Назад", callback_data="go_back")],
@@ -3094,9 +3078,16 @@ def main():
             CallbackQueryHandler(confirm_participate, pattern="^confirm_participate$"),
             CallbackQueryHandler(contact_manager, pattern="^contact_manager$"),
             CallbackQueryHandler(confirm_not_bot_videos, pattern="^confirm_not_bot_videos$"),
+            CallbackQueryHandler(videos_bazumi, pattern="^videos_bazumi$"),
+            CallbackQueryHandler(videos_other, pattern="^videos_other$"),
+            CallbackQueryHandler(support_section, pattern="^support$"),
+            CallbackQueryHandler(confirm_not_bot_support, pattern="^confirm_not_bot_support$"),
         ],
         states={
-            PARTICIPATE_CONFIRM: [MessageHandler(filters.CONTACT, receive_contact)],
+            PARTICIPATE_CONFIRM: [
+                MessageHandler(filters.CONTACT, receive_contact),  # Для мобильных устройств (контакт)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_contact),  # Для десктопных (текст)
+            ],
             VERIFY_SUPPORT: [MessageHandler(filters.CONTACT, handle_support_contact)],
             VERIFY_VIDEOS: [MessageHandler(filters.CONTACT, handle_videos_contact)],
         },
@@ -3175,16 +3166,17 @@ def main():
     application.add_handler(CallbackQueryHandler(check_subscription_gifts, pattern="^check_subscription_gifts$"), group=1)
     
     application.add_handler(CommandHandler("start", start), group=1)
-    application.add_handler(CallbackQueryHandler(support_section, pattern='^support$'), group=1)
+    # application.add_handler(CallbackQueryHandler(support_section, pattern='^support$'), group=1) 
     application.add_handler(CallbackQueryHandler(gifts_section, pattern='^gifts$'), group=1)
     application.add_handler(CallbackQueryHandler(videos_section, pattern='^videos$'), group=1)
-    application.add_handler(CallbackQueryHandler(contact_manager, pattern='^contact_manager$'), group=1)
-    application.add_handler(CallbackQueryHandler(confirm_not_bot_support, pattern='^confirm_not_bot_support$'), group=1)
+    # application.add_handler(CallbackQueryHandler(contact_manager, pattern='^contact_manager$'), group=1)
+    # application.add_handler(CallbackQueryHandler(confirm_not_bot_support, pattern='^confirm_not_bot_support$'), group=1)
     application.add_handler(CallbackQueryHandler(participate_gifts, pattern='^participate_gifts$'), group=1)
     application.add_handler(CallbackQueryHandler(confirm_not_bot_gifts, pattern='^confirm_not_bot_gifts$'), group=1)
-    application.add_handler(CallbackQueryHandler(videos_bazumi, pattern='^videos_bazumi$'), group=1)
-    application.add_handler(CallbackQueryHandler(videos_other, pattern='^videos_other$'), group=1)
-    application.add_handler(CallbackQueryHandler(confirm_not_bot_videos, pattern='^confirm_not_bot_videos$'), group=1)
+    # Убираем, чтобы избежать конфликтов с ConversationHandler
+    # application.add_handler(CallbackQueryHandler(videos_bazumi, pattern='^videos_bazumi$'), group=1)
+    # application.add_handler(CallbackQueryHandler(videos_other, pattern='^videos_other$'), group=1)
+    # application.add_handler(CallbackQueryHandler(confirm_not_bot_videos, pattern='^confirm_not_bot_videos$'), group=1)
     application.add_handler(CallbackQueryHandler(go_back, pattern='^go_back$'), group=1)
     application.add_handler(CallbackQueryHandler(go_to_main_menu, pattern='^go_to_main_menu$'), group=1)
     application.add_handler(CallbackQueryHandler(back_to_admin_panel, pattern="^back_to_admin_panel$"), group=1)
