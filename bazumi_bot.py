@@ -2131,7 +2131,7 @@ async def confirm_not_bot_videos(update: Update, context: CallbackContext) -> in
             keyboard = [
                 [InlineKeyboardButton('Rutube', url='https://rutube.ru/playlist')],
                 [InlineKeyboardButton('Youtube', url='https://youtube.com/playlist')],
-                [InlineKeyboardButton('Назад', callback_data='go_back')],
+                [InlineKeyboardButton('Написать менеджеру', url='https://t.me/AlexeyBazumi')],
                 [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2223,7 +2223,7 @@ async def handle_videos_contact(update: Update, context: CallbackContext) -> int
         keyboard = [
             [InlineKeyboardButton('Rutube', url='https://rutube.ru/playlist')],
             [InlineKeyboardButton('Youtube', url='https://youtube.com/playlist')],
-            [InlineKeyboardButton('Назад', callback_data='go_back')],
+            [InlineKeyboardButton('Написать менеджеру', url='https://t.me/AlexeyBazumi')],
             [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
         ]
     elif video_type == 'other':
@@ -2326,22 +2326,44 @@ async def receive_contact(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 async def gifts_section(update: Update, context: CallbackContext) -> None:
-    text = (
+    # Base text about the weekly gifts
+    base_text = (
         "<b>🎁 Еженедельные подарки</b>\n"
         "Каждую неделю мы разыгрываем игрушки среди подписчиков нашего канала!\n"
         "У каждого есть шанс выиграть — мы дарим не только классные игрушки, но и промокоды на скидку, чтобы порадовать вас и ваших малышей.\n"
         "Следите за розыгрышами и участвуйте — это просто и приятно!\n"
     )
-
+    
+    contest = get_active_contest()
+    if contest:
+        contest_text = format_contest_preview(contest[2], contest[3])
+        text = f"{base_text}\n{contest_text}"
+    else:
+        text = base_text
+    
     keyboard = [
         [InlineKeyboardButton("🎉 Я в деле!", callback_data="participate_gifts")],
         [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
+    
     image_path = "images/contest.png"
+    contest_photo_id = contest[1] if contest else None
 
     context.user_data["history"].append("gifts_section")
 
+    if contest_photo_id:
+        try:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=contest_photo_id,
+                caption=text,
+                reply_markup=reply_markup,
+                parse_mode="HTML",
+            )
+            return
+        except Exception as e:
+            logger.error(f"Error sending contest photo: {e}")
     try:
         with open(image_path, "rb") as photo:
             await context.bot.send_photo(
@@ -2378,13 +2400,7 @@ async def participate_gifts(update: Update, context: CallbackContext) -> None:
         text = format_contest_preview(contest[2], contest[3])
         contest_id = contest[0]
     else:
-        text = (
-            "На этой неделе разыгрываем Bazumi Ultra Puper Super\n"
-            "Условия очень простые:\n"
-            '- нажать "принять участие\n'
-            "- быть подписанным на канал @testkybik\n"
-            "- дождаться результатов, они будут скоро в нашем канале"
-        )
+        text = "В настоящее время нет активных конкурсов. Пожалуйста, следите за нашими обновлениями в канале @testkybik"
         contest_id = None 
 
     if contest and is_participant(contest_id, user_id):
@@ -2564,7 +2580,7 @@ async def videos_bazumi(update: Update, context: CallbackContext) -> None:
         keyboard = [
             [InlineKeyboardButton("Rutube", url="https://rutube.ru/playlist")],
             [InlineKeyboardButton("Youtube", url="https://youtube.com/playlist")],
-            [InlineKeyboardButton("Назад", callback_data="go_back")],
+            [InlineKeyboardButton("Написать менеджеру", url="https://t.me/AlexeyBazumi")],
             [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
