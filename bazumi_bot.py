@@ -69,7 +69,7 @@ def init_db():
         verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )"""
     )
-    c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (6357518457,))
+    c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (1950224047))
     conn.commit()
     conn.close()
 
@@ -157,7 +157,7 @@ def format_contest_preview(title, date):
     return f"""На этой неделе разыгрываем <b>{title}</b>
 📌 Условия участия:
 ✔️ Нажать <u>«Принять участие»</u>
-✔️ Быть подписанным на <b>@testkybik</b>
+✔️ Быть подписанным на <b>@BAZUMI_discountt</b>
 ✔️ Дождаться результатов <b>{date}</b> — мы объявим их в канале, а победителям напишет наш менеджер"""
 
 
@@ -165,7 +165,7 @@ def format_contest_notification(title, date):
     return f"""На этой неделе разыгрываем <b>{title}</b>
 📌 Условия участия:
 ✔️ Нажать <u>«Принять участие»</u>
-✔️ Быть подписанным на <b>@testkybik</b>
+✔️ Быть подписанным на <b>@BAZUMI_discountt</b>
 ✔️ Дождаться результатов <b>{date}</b> — мы объявим их в канале, а победителям напишет наш менеджер"""
 
 
@@ -548,7 +548,7 @@ async def create_contest_preview(update, context):
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             sent_message = await context.bot.send_photo(
-                chat_id="@testkybik",
+                chat_id="@BAZUMI_discountt",
                 photo=context.user_data["contest_photo"],
                 caption=preview,
                 reply_markup=reply_markup,
@@ -845,11 +845,11 @@ async def edit_contest_preview(update, context):
             if result and result[0]:
                 message_id = result[0]
                 logger.info(
-                    f"Attempting to edit message with message_id: {message_id} in chat @testkybik"
+                    f"Attempting to edit message with message_id: {message_id} in chat @BAZUMI_discountt"
                 )
                 try:
                     await context.bot.edit_message_media(
-                        chat_id="@testkybik",
+                        chat_id="@BAZUMI_discountt",
                         message_id=message_id,
                         media=InputMediaPhoto(
                             media=context.user_data["contest_photo"],
@@ -874,7 +874,7 @@ async def edit_contest_preview(update, context):
                     f"No message_id found for contest {context.user_data['contest_id']}. Publishing new message."
                 )
                 sent_message = await context.bot.send_photo(
-                    chat_id="@testkybik",
+                    chat_id="@BAZUMI_discountt",
                     photo=context.user_data["contest_photo"],
                     caption=preview,
                     reply_markup=reply_markup,
@@ -991,11 +991,11 @@ async def confirm_delete(update, context):
         if result and result[0]:
             message_id = result[0]
             logger.info(
-                f"Attempting to delete message {message_id} from channel @testkybik"
+                f"Attempting to delete message {message_id} from channel @BAZUMI_discountt"
             )
             try:
                 await context.bot.delete_message(
-                    chat_id="@testkybik", message_id=message_id
+                    chat_id="@BAZUMI_discountt", message_id=message_id
                 )
                 logger.info(f"Message {message_id} successfully deleted from channel.")
             except Exception as delete_error:
@@ -1130,7 +1130,7 @@ async def participate(update, context):
     
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    channel_id = "@testkybik"
+    channel_id = "@BAZUMI_discountt"
     
     logger.info(f"participate called for user {user_id} from chat {chat_id}")
     
@@ -1222,9 +1222,9 @@ async def participate(update, context):
         try:
             await context.bot.send_message(
                 chat_id=target_chat_id,
-                text="Чтобы участвовать в конкурсе, подпишитесь на канал @testkybik!",
+                text="Чтобы участвовать в конкурсе, подпишитесь на канал @BAZUMI_discountt!",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Подписаться", url="https://t.me/testkybik")],
+                    [InlineKeyboardButton("Подписаться", url="https://t.me/BAZUMI_discountt")],
                     [InlineKeyboardButton("Проверить подписку", callback_data="check_subscription")]
                 ])
             )
@@ -1243,7 +1243,7 @@ async def check_subscription(update, context):
     await query.answer()
 
     user_id = update.effective_user.id
-    channel_id = "@testkybik"
+    channel_id = "@BAZUMI_discountt"
 
     if context.user_data.get("checking_subscription"):
         logger.info(f"User {user_id} already checking subscription, skipping")
@@ -1283,12 +1283,12 @@ async def check_subscription(update, context):
 
         else:
             current_text = query.message.text
-            new_text = "Вы ещё не подписаны на @testkybik. Подпишитесь, чтобы участвовать!"
+            new_text = "Вы ещё не подписаны на @BAZUMI_discountt. Подпишитесь, чтобы участвовать!"
             new_reply_markup = InlineKeyboardMarkup(
                 [
                     [
                         InlineKeyboardButton(
-                            "Подписаться", url="https://t.me/testkybik"
+                            "Подписаться", url="https://t.me/BAZUMI_discountt"
                         )
                     ],
                     [
@@ -1336,7 +1336,7 @@ async def check_subscription_gifts(update, context):
 
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    channel_id = "@testkybik"
+    channel_id = "@BAZUMI_discountt"
 
     try:
         chat_member = await context.bot.get_chat_member(
@@ -1423,12 +1423,12 @@ async def check_subscription_gifts(update, context):
 
         else:
             await query.edit_message_text(
-                "Вы ещё не подписаны на @testkybik. Подпишитесь, чтобы участвовать!",
+                "Вы ещё не подписаны на @BAZUMI_discountt. Подпишитесь, чтобы участвовать!",
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [
                             InlineKeyboardButton(
-                                "Подписаться", url="https://t.me/testkybik"
+                                "Подписаться", url="https://t.me/BAZUMI_discountt"
                             )
                         ],
                         [
@@ -1456,7 +1456,7 @@ async def confirm_participate(update, context):
     logger.info(f"confirm_participate called for user {update.effective_user.id}")
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    channel_id = "@testkybik"
+    channel_id = "@BAZUMI_discountt"
 
     try:
         contest = get_active_contest()
@@ -1510,12 +1510,12 @@ async def confirm_participate(update, context):
         else:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="Чтобы участвовать в конкурсе, подпишитесь на канал @testkybik!",
+                text="Чтобы участвовать в конкурсе, подпишитесь на канал @BAZUMI_discountt!",
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [
                             InlineKeyboardButton(
-                                "Подписаться", url="https://t.me/testkybik"
+                                "Подписаться", url="https://t.me/BAZUMI_discountt"
                             )
                         ],
                         [
@@ -1795,7 +1795,7 @@ async def cancel(update, context):
 
 
 async def add_admin_command(update, context):
-    if update.effective_user.id != 6357518457:
+    if update.effective_user.id != 1950224047:
         await update.message.reply_text(
             "Только суперадминистратор может добавлять администраторов."
         )
@@ -2054,7 +2054,7 @@ async def contact_manager(update: Update, context: CallbackContext) -> None:
     if is_user_verified(user_id):
         text = "Это <b>Люба</b> – ваш менеджер. Она поможет вам с любым вопросом в будние дни с 9:00 до 17:00. Нам важно, чтобы каждый клиент остался доволен!"
         keyboard = [
-            [InlineKeyboardButton("Написать Любе", url="https://t.me/AlexeyBazumi")],
+            [InlineKeyboardButton("Написать Любе", url="https://t.me/Bazumi_Help")],
             [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2094,7 +2094,7 @@ async def confirm_not_bot_support(update: Update, context: CallbackContext) -> i
     if is_user_verified(user_id):
         text = 'Это Люба — ваш менеджер. Она поможет вам с любым вопросом в будние дни с 9:00 до 17:00. Нам важно, чтобы каждый клиент остался доволен!'
         keyboard = [
-            [InlineKeyboardButton('Написать Любе', url='https://t.me/AlexeyBazumi')],
+            [InlineKeyboardButton('Написать Любе', url='https://t.me/Bazumi_Help')],
             [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2131,7 +2131,7 @@ async def confirm_not_bot_videos(update: Update, context: CallbackContext) -> in
             keyboard = [
                 [InlineKeyboardButton('Rutube', url='https://rutube.ru/playlist')],
                 [InlineKeyboardButton('Youtube', url='https://youtube.com/playlist')],
-                [InlineKeyboardButton('Написать менеджеру', url='https://t.me/AlexeyBazumi')],
+                [InlineKeyboardButton('Написать менеджеру', url='https://t.me/Bazumi_Help')],
                 [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2139,7 +2139,7 @@ async def confirm_not_bot_videos(update: Update, context: CallbackContext) -> in
         elif video_type == 'other':
             text = 'Спасибо! К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть Служба заботы, где вам всегда помогут.'
             keyboard = [
-                [InlineKeyboardButton('Написать Любе', url='https://t.me/AlexeyBazumi')],
+                [InlineKeyboardButton('Написать Любе', url='https://t.me/Bazumi_Help')],
                 [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2176,7 +2176,7 @@ async def handle_support_contact(update: Update, context: CallbackContext) -> in
 
     text = "Это <b>Люба</b> – ваш менеджер. Она поможет вам с любым вопросом в будние дни с 9:00 до 17:00. Нам важно, чтобы каждый клиент остался доволен!"
     keyboard = [
-        [InlineKeyboardButton("Написать Любе", url="https://t.me/AlexeyBazumi")],
+        [InlineKeyboardButton("Написать Любе", url="https://t.me/Bazumi_Help")],
         [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2223,13 +2223,13 @@ async def handle_videos_contact(update: Update, context: CallbackContext) -> int
         keyboard = [
             [InlineKeyboardButton('Rutube', url='https://rutube.ru/playlist')],
             [InlineKeyboardButton('Youtube', url='https://youtube.com/playlist')],
-            [InlineKeyboardButton('Написать менеджеру', url='https://t.me/AlexeyBazumi')],
+            [InlineKeyboardButton('Написать менеджеру', url='https://t.me/Bazumi_Help')],
             [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
         ]
     elif video_type == 'other':
         text = 'К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть Служба заботы, где вам всегда помогут.'
         keyboard = [
-            [InlineKeyboardButton('Написать Любе', url='https://t.me/AlexeyBazumi')],
+            [InlineKeyboardButton('Написать Любе', url='https://t.me/Bazumi_Help')],
             [InlineKeyboardButton('В главное меню', callback_data='go_to_main_menu')]
         ]
     else:
@@ -2400,7 +2400,7 @@ async def participate_gifts(update: Update, context: CallbackContext) -> None:
         text = format_contest_preview(contest[2], contest[3])
         contest_id = contest[0]
     else:
-        text = "В настоящее время нет активных конкурсов. Пожалуйста, следите за нашими обновлениями в канале @testkybik"
+        text = "В настоящее время нет активных конкурсов. Пожалуйста, следите за нашими обновлениями в канале @BAZUMI_discountt"
         contest_id = None 
 
     if contest and is_participant(contest_id, user_id):
@@ -2580,7 +2580,7 @@ async def videos_bazumi(update: Update, context: CallbackContext) -> None:
         keyboard = [
             [InlineKeyboardButton("Rutube", url="https://rutube.ru/playlist")],
             [InlineKeyboardButton("Youtube", url="https://youtube.com/playlist")],
-            [InlineKeyboardButton("Написать менеджеру", url="https://t.me/AlexeyBazumi")],
+            [InlineKeyboardButton("Написать менеджеру", url="https://t.me/Bazumi_Help")],
             [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2622,7 +2622,7 @@ async def videos_other(update: Update, context: CallbackContext) -> None:
     if is_user_verified(user_id):
         text = "<b>Спасибо!</b> К сожалению, у нас нет инструкций к другим игрушкам в открытом доступе – но у нас есть <u>Служба заботы</u>, где вам всегда помогут."
         keyboard = [
-            [InlineKeyboardButton("Написать Любе", url="https://t.me/AlexeyBazumi")],
+            [InlineKeyboardButton("Написать Любе", url="https://t.me/Bazumi_Help")],
             [InlineKeyboardButton("В главное меню", callback_data="go_to_main_menu")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2834,7 +2834,7 @@ async def go_to_main_menu(update: Update, context: CallbackContext) -> None:
 def main():
     global application, participate_handler
     init_db()
-    application = Application.builder().token("7972510069:AAGEWyXr5BQlydxbkwsziyfGxxtscsMTPfs").build()
+    application = Application.builder().token("8111555224:AAGHlMmFdkjAArnldyTk4W5VFsh3dHgO6DE").build()
     
     application.add_error_handler(error_handler)
     
